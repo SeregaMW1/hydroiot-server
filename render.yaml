@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: hydroiot-server
+    env: node
+    plan: free
+    region: frankfurt
+    branch: main
+    buildCommand: "npm install && npm run build"
+    startCommand: "npm start"
+    autoDeploy: true
+    envVars:
+      - key: HYDROIOT_TOKEN
+        sync: false
+      - key: SSE_HMAC_SECRET
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY
+        sync: false
+      - key: REDIS_URL
+        sync: false
