@@ -12,16 +12,13 @@ const MQTT_TELEMETRY_TOPIC = process.env.MQTT_TELEMETRY_TOPIC || "devices/+/tele
 
 if (!MQTT_URL || !MQTT_USERNAME || !MQTT_PASSWORD) {
   logger.error("[MQTT] Missing env MQTT_URL / MQTT_USERNAME / MQTT_PASSWORD");
-  // не падаем в проде — но шансов подключиться нет
 }
 
 // -------- Валидация полезной нагрузки --------
 export const TelemetrySchema = z.object({
-  uid: z.string().min(1).optional(),      // желательно, но не всегда будет
-  deviceId: z.string().min(1).optional(), // если нет в topic — можно брать из payload
+  uid: z.string().min(1).optional(),
+  deviceId: z.string().min(1).optional(),
   ts: z.number().int().optional(),
-
-  // сенсоры
   ph: z.number().optional(),
   ec: z.number().optional(),
   waterTempC: z.number().optional(),
@@ -33,23 +30,22 @@ export const TelemetrySchema = z.object({
   fw: z.string().optional(),
 }).passthrough();
 
-function parseDeviceIdFromTopic(topic: string): string | null {
-  // ожидаем devices/{deviceId}/telemetry
+// ✅ Вытаскиваем deviceId из топика devices/{deviceId}/telemetry
+function parseDeviceIdFromTopic(topic: string): string | undefined {
   const parts = topic.split("/");
-  if (parts.length >= 3 && parts[0] === "devices" && parts[2] === "telemetry") {
-    return parts[1];
-  }
-  return null;
+  return parts.length >= 3 && parts[0] === "devices" && parts[2] === "telemetry"
+    ? parts[1]
+    : undefined;
 }
 
 // -------- MQTT connect --------
 const client = mqtt.connect(MQTT_URL, {
   username: MQTT_USERNAME,
   password: MQTT_PASSWORD,
-  reconnectPeriod: 5000,     // 5s backoff (mqtt.js сам увеличивает паузу)
-  connectTimeout: 15000,     // 15s
-  keepalive: 30,             // сек
-  protocolVersion: 4,        // MQTT v3.1.1 для совместимости
+  reconnectPeriod: 5000,
+  connectTimeout: 15000,
+  keepalive: 30,
+  protocolVersion: 4,
 });
 
 client.on("connect", () => {
@@ -66,50 +62,56 @@ client.on("error", (err) => logger.error("[MQTT] error", err));
 
 client.on("message", async (topic, payloadBuf) => {
   const receivedAt = new Date();
-  let deviceIdFromTopic = parseDeviceIdFromTopic(topic);
+  const deviceIdInTopic = parseDeviceIdFromTopic(topic);
 
   try {
-    const payloadText = payloadBuf.toString("utf8");
-    const parsed = TelemetrySchema.safeParse(JSON.parse(payloadText));
+    const raw = payloadBuf.toString("utf8");
+    const parsed = TelemetrySchema.safeParse(JSON.parse(raw));
+
     if (!parsed.success) {
-      logger.warn("[MQTT] telemetry validation failed", parsed.error.flatten());
+      logger.warn("[MQTT] ❌ Invalid telemetry JSON", parsed.error.format());
       return;
     }
+
     const data = parsed.data;
+    const deviceId = deviceIdInTopic ?? data.deviceId;
 
-    // deviceId: приоритет topic > payload
-    const deviceId = deviceIdFromTopic || data.deviceId;
     if (!deviceId) {
-      logger.warn("[MQTT] no deviceId (topic/payload)");
+      logger.warn("[MQTT] ❌ No deviceId in topic or payload");
       return;
     }
 
-    // uid: приоритет payload.uid; иначе resolve из Firestore индекса
-    let uid = data.uid;
+    // ✅ UID: сначала берем из payload, если нет — ищем в Firestore
+    let uid: string | undefined = data.uid;
     if (!uid) {
-      uid = await resolveUidByDeviceId(deviceId);
-      if (!uid) {
-        logger.warn(`[MQTT] uid not found for deviceId=${deviceId}. Telemetry skipped until device is claimed.`);
-        return; // нет владельца — пока игнорируем или можно накапливать во временную коллекцию
+      const resolved = await resolveUidByDeviceId(deviceId);
+      if (!resolved) {
+        logger.warn(`[MQTT] ⚠ Device ${deviceId} has no owner (uid). Skipping.`);
+        return;
       }
+      uid = resolved;
     }
 
-    // Обновим (или создадим) устройство и статус
+    // ✅ Сохраняем устройство (гарантируем его существование в Firestore)
     await upsertDeviceForUid(uid, deviceId, {
       fw: data.fw,
-      lastSeen: receivedAt,
       lastRssi: data.rssi ?? null,
+      lastSeen: receivedAt,
     });
 
-    // Сохраним телеметрию
+    // ✅ Сохраняем телеметрию
     await saveTelemetry(uid, deviceId, {
       ...data,
       deviceId,
-      receivedAt: receivedAt,
+      receivedAt,
     });
 
-    logger.info(`[MQTT] ✅ stored telemetry uid=${uid} device=${deviceId}`);
+    logger.info(`[MQTT] ✅ Saved telemetry: uid=${uid} device=${deviceId}`);
+
   } catch (err: any) {
-    logger.error("[MQTT] handler error", { err: err?.message, topic });
+    logger.error("[MQTT] handler exception", {
+      error: err?.message,
+      topic,
+    });
   }
 });
