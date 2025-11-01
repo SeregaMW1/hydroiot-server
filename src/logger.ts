@@ -1,9 +1,12 @@
 import pino from "pino";
-import pinoHttp from "pino-http";
 
 export const logger = pino({
   level: process.env.NODE_ENV === "production" ? "info" : "debug",
-  transport: process.env.NODE_ENV === "production" ? undefined : { target: "pino-pretty" }
+  // Убираем transport (pino-pretty), чтобы не ломалось
+  transport: process.env.NODE_ENV === "production" ? undefined : undefined
 });
 
-export const httpLogger = pinoHttp({ logger });
+export const httpLogger = () => (req: any, res: any, next: any) => {
+  logger.info({ method: req.method, url: req.url });
+  next();
+};
