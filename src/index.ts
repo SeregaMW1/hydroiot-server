@@ -6,10 +6,10 @@ import { admin, db } from "./firebase/index.js";
 
 const app = createApp();
 
-// ✅ Приводим порт к числу
-const PORT: number = parseInt(process.env.PORT || cfg.PORT?.toString() || "3000", 10);
+// ✅ PORT без TS-ошибок (универсальный)
+const PORT = Number(process.env.PORT || cfg.PORT || 3000);
 
-// ✅ Важно: слушаем 0.0.0.0 — иначе Render / Docker не увидят сервер
+// ✅ Render / Docker требуют 0.0.0.0
 app.listen(PORT, "0.0.0.0", () => {
   logger.info(`✅ Server listening on http://0.0.0.0:${PORT}`);
 });
