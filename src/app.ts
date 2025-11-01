@@ -4,36 +4,39 @@ import helmet from "helmet";
 import compression from "compression";
 import morgan from "morgan";
 import { httpLogger } from "./logger.js";
-import { health } from "./routes/health.js";
 import { webhook } from "./routes/webhook.js";
 import { telemetry } from "./routes/telemetry.js";
 
 export function createApp() {
   const app = express();
 
-  // --- базовая защита и парсинг ---
+  // ✅ 1. Сразу отвечаем Render на HEAD /
+  app.head("/", (_req, res) => res.status(200).end());
+
+  // ✅ 2. Простой ответ на /
+  app.get("/", (_req, res) => {
+    res.type("text").send("✅ HydroIoT server is running.");
+  });
+
+  // ✅ 3. Health-check
+  app.get("/health", (_req, res) => {
+    res.json({ ok: true, time: new Date().toISOString() });
+  });
+
+  // ✅ 4. Теперь middleware — после базовых ответов
   app.set("trust proxy", true);
   app.use(cors());
-  app.use(helmet());
+  app.use(
+    helmet({
+      contentSecurityPolicy: false, // иначе может блокировать inline-HTML
+    })
+  );
   app.use(compression());
   app.use(express.json({ limit: "1mb" }));
   app.use(morgan("dev"));
   if (httpLogger) app.use(httpLogger);
 
-  // ✅ Render требует, чтобы HEAD / возвращал 200 OK
-  app.head("/", (_req, res) => res.status(200).end());
-
-  // ✅ Обычный GET / — чтобы браузер показывал страницу, а не зависал
-  app.get("/", (_req, res) => {
-    res.type("text").send("✅ HydroIoT server is running.");
-  });
-
-  // ✅ Health-check
-  app.get("/health", (_req, res) => {
-    res.json({ ok: true, time: new Date().toISOString() });
-  });
-
-  // ✅ Тестовая страница (можно позже подключить Firestore telemetry)
+  // ✅ 5. Тестовая страница
   app.get("/test", (_req, res) => {
     res.type("html").send(`
       <html>
@@ -46,9 +49,9 @@ export function createApp() {
     `);
   });
 
-  // --- основные роуты API ---
-  app.use("/webhook", webhook);          // Webhook от CloudAMQP → Firestore
-  app.use("/api/telemetry", telemetry);  // Отдача данных телеметрии
+  // ✅ 6. Основные API
+  app.use("/webhook", webhook);
+  app.use("/api/telemetry", telemetry);
 
   return app;
 }
