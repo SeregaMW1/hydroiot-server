@@ -1,7 +1,7 @@
 import { createApp } from "./app.js";
 import { cfg } from "./config.js";
 import { logger } from "./logger.js";
-import "./mqtt/mqttClient";               // ← MQTT запускается сразу при импорте
+import "./mqtt/mqttClient.js";
 import { admin, db } from "./firebase/index.js"; 
 
 const app = createApp();
