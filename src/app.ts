@@ -11,26 +11,30 @@ import { telemetry } from "./routes/telemetry.js";
 export function createApp() {
   const app = express();
 
-  // --- базовые middleware ---
+  // 🔹 Базовые middleware
   app.set("trust proxy", true);
   app.use(helmet());
   app.use(cors());
   app.use(compression());
   app.use(express.json({ limit: "1mb" }));
-  app.use(morgan("dev")); // лог HTTP-запросов
+  app.use(morgan("dev"));
   if (httpLogger) app.use(httpLogger);
 
-  // ✅ Корневой маршрут "/" — важно для Render!
+  // ✅ Главная страница (иначе Render делает HEAD / и думает, что сервис мертв)
   app.get("/", (_req, res) => {
-    res.send("✅ HydroIoT server is running. Try /test or /health");
+    res.type("text/plain").send("✅ HydroIoT Server is running");
   });
 
-  // --- рабочий /health маршрут ---
+  // ✅ /health — для Render / UptimeRobot
   app.get("/health", (_req, res) => {
-    res.json({ ok: true, status: "alive ✅", time: new Date().toISOString() });
+    res.json({
+      ok: true,
+      status: "alive ✅",
+      time: new Date().toISOString(),
+    });
   });
 
-  // --- тестовая страница /test ---
+  // ✅ /test — визуальная страница
   app.get("/test", (_req, res) => {
     res.type("html").send(`
       <html>
@@ -44,8 +48,8 @@ export function createApp() {
     `);
   });
 
-  // --- основные маршруты приложения ---
-  app.use(health); // если /health реализован как Router — он тоже подключится
+  // ✅ Основные API-маршруты
+  app.use(health);
   app.use("/webhook", webhook);
   app.use("/api/telemetry", telemetry);
 
