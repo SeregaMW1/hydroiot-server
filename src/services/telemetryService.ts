@@ -4,17 +4,18 @@ import { logger } from "../utils/logger.js";
 export interface TelemetryData {
   deviceId: string;
   ts?: number;
-  ph?: number;
-  ec?: number;
-  waterTempC?: number;
-  airTempC?: number;
-  humidity?: number;
+  ph?: number | null;
+  ec?: number | null;
+  waterTempC?: number | null;
+  airTempC?: number | null;
+  humidity?: number | null;
   levelMin?: boolean;
   levelMax?: boolean;
-  rssi?: number;
+  rssi?: number | null;
   fw?: string;
-  receivedAt: Date; // из MQTT, преобразуем в Firestore Timestamp
+  receivedAt: Date;
 }
+
 
 /**
  * Сохраняет полную телеметрию:
