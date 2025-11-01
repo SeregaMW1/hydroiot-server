@@ -1,21 +1,21 @@
-import { admin, db } from "../firebase";
-import { logger } from "../utils/logger";
+import { admin, db } from "../firebase/index.js"; // ✅ Обязательно .js при "type": "module"
+import { logger } from "../utils/logger.js";
 
 /**
  * Возвращает uid владельца по deviceId.
- * Ищет сначала в deviceIndex/{deviceId}, если нет — через collectionGroup.
+ * Сначала ищет в deviceIndex/{deviceId}, затем через collectionGroup.
  */
-export async function resolveUidByDeviceId(deviceId: string): Promise<string | undefined> {
+export async function resolveUidByDeviceId(
+  deviceId: string
+): Promise<string | undefined> {
   try {
-    const idxRef = db.collection("deviceIndex").doc(deviceId);
-    const idxSnap = await idxRef.get();
+    const idxSnap = await db.collection("deviceIndex").doc(deviceId).get();
 
     if (idxSnap.exists) {
-      const data = idxSnap.data();
-      return data?.uid || undefined;
+      return idxSnap.data()?.uid ?? undefined;
     }
 
-    // fallback — ищем через users/*/devices/* (дороже, но разово)
+    // fallback через users/*/devices/*
     const cgSnap = await db
       .collectionGroup("devices")
       .where("deviceId", "==", deviceId)
@@ -23,16 +23,15 @@ export async function resolveUidByDeviceId(deviceId: string): Promise<string | u
       .get();
 
     if (!cgSnap.empty) {
-      const firstDoc = cgSnap.docs[0];            // path: users/{uid}/devices/{deviceId}
-      const pathParts = firstDoc.ref.path.split("/"); // ["users", "{uid}", "devices", "{deviceId}"]
-      const uid = pathParts[1];
+      const docRef = cgSnap.docs[0];
+      const uid = docRef.ref.path.split("/")[1]; // users/{uid}/devices/{deviceId}
 
-      // сохраняем в индекс на будущее
+      // ✅ Сохраняем связку deviceId → uid
       await db.collection("deviceIndex").doc(deviceId).set(
         {
           uid,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         },
         { merge: true }
       );
@@ -41,15 +40,18 @@ export async function resolveUidByDeviceId(deviceId: string): Promise<string | u
     }
 
     return undefined;
-  } catch (err: any) {
-    logger.error("[deviceService] resolveUidByDeviceId error", { error: err?.message });
+  } catch (error: any) {
+    logger.error("[deviceService] resolveUidByDeviceId error", {
+      error: error?.message,
+    });
     return undefined;
   }
 }
 
 /**
- * Создаёт или обновляет устройство в users/{uid}/devices/{deviceId}
- * + обновляет deviceIndex/{deviceId} → uid
+ * Создаёт или обновляет:
+ *  - users/{uid}/devices/{deviceId}
+ *  - deviceIndex/{deviceId}
  */
 export async function upsertDeviceForUid(
   uid: string,
@@ -68,14 +70,15 @@ export async function upsertDeviceForUid(
       deviceId,
       uid,
       model: "HydroESP32",
+
       fw: patch.fw ?? admin.firestore.FieldValue.delete(),
       lastSeen: patch.lastSeen
         ? admin.firestore.Timestamp.fromDate(patch.lastSeen)
         : now,
       lastRssi: patch.lastRssi ?? admin.firestore.FieldValue.delete(),
+
       status: "online",
       updatedAt: now,
-      firstSeen: now,
     },
     { merge: true }
   );
