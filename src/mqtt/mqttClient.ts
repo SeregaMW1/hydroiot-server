@@ -16,22 +16,21 @@ if (!MQTT_URL || !MQTT_USERNAME || !MQTT_PASSWORD) {
 }
 
 // -------- Валидация полезной нагрузки --------
-export const TelemetrySchema = z
-  .object({
-    uid: z.string().min(1).optional(),
-    deviceId: z.string().min(1).optional(),
-    ts: z.number().int().optional(),
-    ph: z.number().optional(),
-    ec: z.number().optional(),
-    waterTempC: z.number().optional(),
-    airTempC: z.number().optional(),
-    humidity: z.number().optional(),
-    levelMin: z.boolean().optional(),
-    levelMax: z.boolean().optional(),
-    rssi: z.number().optional(),
-    fw: z.string().optional(),
-  })
-  .passthrough();
+export const TelemetrySchema = z.object({
+  uid: z.string().min(1).optional(),
+  deviceId: z.string().min(1).optional(),
+  ts: z.number().int().optional(),
+
+  ph: z.number().nullable().optional(),
+  ec: z.number().nullable().optional(),
+  waterTempC: z.number().nullable().optional(),
+  airTempC: z.number().nullable().optional(),
+  humidity: z.number().nullable().optional(),
+  levelMin: z.boolean().optional(),
+  levelMax: z.boolean().optional(),
+  rssi: z.number().nullable().optional(),
+  fw: z.string().optional(),
+}).passthrough();
 
 // ✅ Разбор "devices/{deviceId}/telemetry"
 function parseDeviceIdFromTopic(topic: string): string | undefined {
@@ -118,3 +117,4 @@ client.on("message", async (topic, payloadBuf) => {
     });
   }
 });
+
