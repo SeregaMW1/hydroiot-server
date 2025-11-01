@@ -17,8 +17,13 @@ export function createApp() {
   app.use(cors());
   app.use(compression());
   app.use(express.json({ limit: "1mb" }));
-  app.use(morgan("dev"));       // лог HTTP-запросов
+  app.use(morgan("dev")); // лог HTTP-запросов
   if (httpLogger) app.use(httpLogger);
+
+  // ✅ Корневой маршрут "/" — важно для Render!
+  app.get("/", (_req, res) => {
+    res.send("✅ HydroIoT server is running. Try /test or /health");
+  });
 
   // --- рабочий /health маршрут ---
   app.get("/health", (_req, res) => {
@@ -40,7 +45,7 @@ export function createApp() {
   });
 
   // --- основные маршруты приложения ---
-  app.use(health); // (если health реализован как Router — тоже подключается)
+  app.use(health); // если /health реализован как Router — он тоже подключится
   app.use("/webhook", webhook);
   app.use("/api/telemetry", telemetry);
 
