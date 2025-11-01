@@ -17,7 +17,7 @@
     "dotenv": "^16.4.5",
     "pino": "^9.4.0",
     "pino-http": "^10.3.0",
-    "zod": "^3.23.8"             // ✅ Перенесено из dev в dependencies
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "typescript": "^5.6.3",
@@ -26,6 +26,6 @@
     "@types/node": "^20.12.12",
     "@types/cors": "^2.8.17",
     "@types/morgan": "^1.9.9",
-    "@types/compression": "^1.7.5" // ✅ Добавлено, чтобы не было ошибок TS
+    "@types/compression": "^1.7.5"
   }
 }
