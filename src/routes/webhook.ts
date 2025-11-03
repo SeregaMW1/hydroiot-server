@@ -19,6 +19,7 @@ webhook.post("/telemetry", requireToken, async (req, res) => {
       .collection("devices").doc(deviceId)
       .collection("telemetry").doc(docId);
 
+    // 📌 1. Сохраняем телеметрию
     await ref.set({
       ...payload,
       ts: ts ? new Date(ts) : FieldValue.serverTimestamp(),
@@ -26,7 +27,18 @@ webhook.post("/telemetry", requireToken, async (req, res) => {
       msgId: msgId ?? null
     }, { merge: true });
 
-    logger.info({ uid, deviceId, docId }, "telemetry stored");
+    // ✅ 2. Обновляем статус устройства
+    await db.collection("users").doc(uid)
+      .collection("devices").doc(deviceId)
+      .set(
+        {
+          isOnline: true,
+          lastSeen: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+    logger.info({ uid, deviceId, docId }, "telemetry stored + status updated");
     res.status(201).json({ ok: true, id: docId });
   } catch (e: any) {
     logger.error(e, "webhook error");
