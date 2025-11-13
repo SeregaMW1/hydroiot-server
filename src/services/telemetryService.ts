@@ -1,4 +1,4 @@
-import { admin, db } from "../firebase/index.js"; // ✅ важно: .js в ESM
+import { admin, db } from "../firebase/index.js"; // ESM важен .js
 import { logger } from "../utils/logger.js";
 
 export interface TelemetryData {
@@ -13,13 +13,13 @@ export interface TelemetryData {
   levelMax?: boolean;
   rssi?: number | null;
   fw?: string;
-  receivedAt: Date;
+  receivedAt: Date;   // ← единственная дата
 }
 
 /**
- * Сохраняет полную телеметрию:
+ * Сохраняет телеметрию:
  *  users/{uid}/devices/{deviceId}/telemetry/{autoId}
- *  + обновляет lastTelemetry в users/{uid}/devices/{deviceId}
+ * + обновляет lastTelemetry
  */
 export async function saveTelemetry(
   uid: string,
@@ -27,48 +27,42 @@ export async function saveTelemetry(
   data: TelemetryData
 ) {
   try {
-    const deviceRef = db.collection("users").doc(uid).collection("devices").doc(deviceId);
+    const deviceRef = db
+      .collection("users")
+      .doc(uid)
+      .collection("devices")
+      .doc(deviceId);
 
     // =============================================================
-    //   ROUND TIME TO 15-MINUTE PERIODS (00, 15, 30, 45 minutes)
+    //   ROUND TIME TO 15-MINUTE PERIOD (00, 15, 30, 45 minutes)
     // =============================================================
 
-    // Берём время, которое прислал ESP32
     const rawDate =
       data.receivedAt instanceof Date
         ? data.receivedAt
         : new Date(data.receivedAt);
 
     const minutes = rawDate.getMinutes();
-
-    // Округляем вниз до квартала
     const roundedMinutes = Math.floor(minutes / 15) * 15;
 
-    // Создаём "ровное" время
     const periodDate = new Date(rawDate);
     periodDate.setMinutes(roundedMinutes);
     periodDate.setSeconds(0);
     periodDate.setMilliseconds(0);
 
-    // Конвертация в Firestore Timestamp
     const periodTimestamp = admin.firestore.Timestamp.fromDate(periodDate);
 
-    // 🔥 (опционально) Можно добавить фактическое время прихода
-    const rawServerTs = admin.firestore.Timestamp.now();
-
     // =============================================================
-    // 1. Сохраняем полный кадр телеметрии в историю
+    // 1. Сохранение полной телеметрии (ИСТОРИЯ)
     // =============================================================
 
     await deviceRef.collection("telemetry").add({
       ...data,
-      receivedAt: periodTimestamp,     // ← ровное время периода
-      serverTs: periodTimestamp,       // ← тоже ровное время
-      rawServerTs,                     // ← фактическое время прихода
+      receivedAt: periodTimestamp, // ← ЕДИНСТВЕННАЯ дата
     });
 
     // =============================================================
-    // 2. Обновление lastTelemetry в документе устройства
+    // 2. Обновление lastTelemetry
     // =============================================================
 
     await deviceRef.set(
@@ -84,9 +78,8 @@ export async function saveTelemetry(
           levelMax: data.levelMax ?? null,
           rssi: data.rssi ?? null,
           fw: data.fw ?? null,
-          receivedAt: periodTimestamp,           // ← совпадает с историей
-          serverTs: periodTimestamp,             // ← совпадает с историей
-          rawServerTs,                           // ← необязательно
+
+          receivedAt: periodTimestamp, // ← только одна дата
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         },
       },
