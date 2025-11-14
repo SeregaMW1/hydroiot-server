@@ -1,25 +1,36 @@
-import { admin, db } from "../firebase/index.js"; // ESM важен .js
+import { admin, db } from "../firebase/index.js";
 import { logger } from "../utils/logger.js";
 
+/**
+ * Формат принимаемой телеметрии от ESP32
+ */
 export interface TelemetryData {
   deviceId: string;
-  ts?: number;
+  ts: number;                       // ровный слот от устройства в ms
   ph?: number | null;
   ec?: number | null;
   waterTempC?: number | null;
-  airTempC?: number | null;
-  humidity?: number | null;
-  levelMin?: boolean;
-  levelMax?: boolean;
   rssi?: number | null;
   fw?: string;
-  receivedAt: Date;   // ← единственная дата
+  receivedAt: Date;                 // время получения устройством
 }
 
 /**
- * Сохраняет телеметрию:
- *  users/{uid}/devices/{deviceId}/telemetry/{autoId}
- * + обновляет lastTelemetry
+ * Округляет дату к слоту (00/15/30/45)
+ */
+function roundTo15minSlot(date: Date): admin.firestore.Timestamp {
+  const d = new Date(date);
+  const slot = Math.floor(d.getMinutes() / 15) * 15;
+
+  d.setMinutes(slot);
+  d.setSeconds(0);
+  d.setMilliseconds(0);
+
+  return admin.firestore.Timestamp.fromDate(d);
+}
+
+/**
+ * Основная функция сохранения телеметрии
  */
 export async function saveTelemetry(
   uid: string,
@@ -27,72 +38,78 @@ export async function saveTelemetry(
   data: TelemetryData
 ) {
   try {
+    // ---------------------------
+    // 0) ВАЛИДАЦИЯ ВХОДНОЙ ТЕЛЕМЕТРИИ
+    // ---------------------------
+
+    if (!data.ts || typeof data.ts !== "number") {
+      throw new Error("Invalid ts: must be number");
+    }
+
+    if (!data.deviceId) {
+      throw new Error("Missing deviceId");
+    }
+
+    if (!(data.receivedAt instanceof Date)) {
+      data.receivedAt = new Date(data.receivedAt);
+    }
+
+    // ---------------------------
+    // 1) КОРРЕКТНОЕ ОКРУГЛЕНИЕ
+    // ---------------------------
+
+    const slotTimestamp = roundTo15minSlot(data.receivedAt);
+
+    // Firestore docId = ts (НОРМАЛЬНОЕ ЧИСЛО)
+    const tsStr = String(data.ts);
+
     const deviceRef = db
       .collection("users")
       .doc(uid)
       .collection("devices")
       .doc(deviceId);
 
-    // =============================================================
-    //   ROUND TIME TO 15-MINUTE PERIOD (00, 15, 30, 45 minutes)
-    // =============================================================
+    const telemetryRef = deviceRef.collection("telemetry").doc(tsStr);
 
-    const rawDate =
-      data.receivedAt instanceof Date
-        ? data.receivedAt
-        : new Date(data.receivedAt);
+    // ---------------------------
+    // 2) ПОДГОТОВКА ОБЪЕКТА ДЛЯ ЗАПИСИ (ЧИСТАЯ ВЕРСИЯ)
+    // ---------------------------
 
-    const minutes = rawDate.getMinutes();
-    const roundedMinutes = Math.floor(minutes / 15) * 15;
+    const record = {
+      deviceId: data.deviceId,
+      ts: data.ts,
+      ph: data.ph ?? null,
+      ec: data.ec ?? null,
+      waterTempC: data.waterTempC ?? null,
+      rssi: data.rssi ?? null,
+      fw: data.fw ?? null,
 
-    const periodDate = new Date(rawDate);
-    periodDate.setMinutes(roundedMinutes);
-    periodDate.setSeconds(0);
-    periodDate.setMilliseconds(0);
+      // ⚠ единственная дата — ровно слот
+      slotAt: slotTimestamp,
+    };
 
-    const periodTimestamp = admin.firestore.Timestamp.fromDate(periodDate);
+    // ---------------------------
+    // 3) ЗАПИСЬ В ИСТОРИЮ (ИДЕМПОТЕНТНО)
+    // ---------------------------
 
-    // =============================================================
-    // 1. Сохранение полной телеметрии (ИСТОРИЯ)
-    // =============================================================
+    await telemetryRef.set(record, { merge: true });
 
-  const tsStr = String(data.ts); // tsMilliseconds → string
-
-await deviceRef
-  .collection("telemetry")
-  .doc(tsStr) // уникальный ID документа
-  .set(
-    {
-      ...data,
-      receivedAt: admin.firestore.Timestamp.fromDate(data.receivedAt),
-      serverTs: admin.firestore.FieldValue.serverTimestamp(),
-    },
-    { merge: true }
-  );
-
-    // =============================================================
-    // 2. Обновление lastTelemetry
-    // =============================================================
+    // ---------------------------
+    // 4) АТОМАРНОЕ ОБНОВЛЕНИЕ lastTelemetry
+    // ---------------------------
 
     await deviceRef.set(
       {
         lastTelemetry: {
-          ts: data.ts ?? null,
-          ph: data.ph ?? null,
-          ec: data.ec ?? null,
-          waterTempC: data.waterTempC ?? null,
-          airTempC: data.airTempC ?? null,
-          humidity: data.humidity ?? null,
-          levelMin: data.levelMin ?? null,
-          levelMax: data.levelMax ?? null,
-          rssi: data.rssi ?? null,
-          fw: data.fw ?? null,
-
-          receivedAt: periodTimestamp, // ← только одна дата
+          ...record,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         },
       },
       { merge: true }
+    );
+
+    logger.info(
+      `[telemetryService] saved ts=${tsStr} uid=${uid} dev=${deviceId}`
     );
   } catch (err: any) {
     logger.error("[telemetryService] saveTelemetry error", {
