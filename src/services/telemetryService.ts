@@ -56,10 +56,19 @@ export async function saveTelemetry(
     // 1. Сохранение полной телеметрии (ИСТОРИЯ)
     // =============================================================
 
-    await deviceRef.collection("telemetry").add({
+  const tsStr = String(data.ts); // tsMilliseconds → string
+
+await deviceRef
+  .collection("telemetry")
+  .doc(tsStr) // уникальный ID документа
+  .set(
+    {
       ...data,
-      receivedAt: periodTimestamp, // ← ЕДИНСТВЕННАЯ дата
-    });
+      receivedAt: admin.firestore.Timestamp.fromDate(data.receivedAt),
+      serverTs: admin.firestore.FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
 
     // =============================================================
     // 2. Обновление lastTelemetry
