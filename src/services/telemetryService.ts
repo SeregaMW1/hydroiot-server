@@ -1,121 +1,85 @@
-import { admin, db } from "../firebase/index.js";
+// src/services/telemetryService.ts
+import { db } from "../firebase.js";
 import { logger } from "../utils/logger.js";
+import type { TelemetryInput, TelemetryData } from "../types/TelemetryData.js";
 
 /**
- * Формат принимаемой телеметрии от ESP32
+ * Нормализация входящей телеметрии:
+ *  - гарантируем ts
+ *  - приводим nullable поля к понятному виду
  */
-export interface TelemetryData {
-  deviceId: string;
-  ts: number;                       // ровный слот от устройства в ms
-  ph?: number | null;
-  ec?: number | null;
-  waterTempC?: number | null;
-  rssi?: number | null;
-  fw?: string;
-  receivedAt: Date;                 // время получения устройством
+function normalizeTelemetry(
+  uid: string,
+  deviceId: string,
+  input: TelemetryInput
+): TelemetryData {
+  const {
+    receivedAt,
+    ts,
+    ph,
+    ec,
+    waterTempC,
+    airTempC,
+    humidity,
+    levelMin,
+    levelMax,
+    rssi,
+    fw,
+  } = input;
+
+  const measurementTs = ts ?? receivedAt.getTime();
+
+  return {
+    uid,
+    deviceId,
+    receivedAt,
+    ts: measurementTs,
+
+    ph: ph ?? null,
+    ec: ec ?? null,
+    waterTempC: waterTempC ?? null,
+    airTempC: airTempC ?? null,
+    humidity: humidity ?? null,
+    rssi: rssi ?? null,
+    fw: fw ?? null,
+
+    // bool’ы лучше хранить как boolean | null, чтобы не путать с “false = нет датчика”
+    levelMin: typeof levelMin === "boolean" ? levelMin : null,
+    levelMax: typeof levelMax === "boolean" ? levelMax : null,
+  };
 }
 
 /**
- * Округляет дату к слоту (00/15/30/45)
- */
-function roundTo15minSlot(date: Date): admin.firestore.Timestamp {
-  const d = new Date(date);
-  const slot = Math.floor(d.getMinutes() / 15) * 15;
-
-  d.setMinutes(slot);
-  d.setSeconds(0);
-  d.setMilliseconds(0);
-
-  return admin.firestore.Timestamp.fromDate(d);
-}
-
-/**
- * Основная функция сохранения телеметрии
+ * Центральная точка записи телеметрии в Firestore.
  */
 export async function saveTelemetry(
   uid: string,
   deviceId: string,
-  data: TelemetryData
-) {
+  input: TelemetryInput
+): Promise<void> {
   try {
-    // ---------------------------
-    // 0) ВАЛИДАЦИЯ ВХОДНОЙ ТЕЛЕМЕТРИИ
-    // ---------------------------
+    const data = normalizeTelemetry(uid, deviceId, input);
 
-    if (!data.ts || typeof data.ts !== "number") {
-      throw new Error("Invalid ts: must be number");
-    }
-
-    if (!data.deviceId) {
-      throw new Error("Missing deviceId");
-    }
-
-    if (!(data.receivedAt instanceof Date)) {
-      data.receivedAt = new Date(data.receivedAt);
-    }
-
-    // ---------------------------
-    // 1) КОРРЕКТНОЕ ОКРУГЛЕНИЕ
-    // ---------------------------
-
-    const slotTimestamp = roundTo15minSlot(data.receivedAt);
-
-    // Firestore docId = ts (НОРМАЛЬНОЕ ЧИСЛО)
-    const tsStr = String(data.ts);
-
-    const deviceRef = db
+    const colRef = db
       .collection("users")
       .doc(uid)
       .collection("devices")
-      .doc(deviceId);
+      .doc(deviceId)
+      .collection("telemetry");
 
-    const telemetryRef = deviceRef.collection("telemetry").doc(tsStr);
+    await colRef.add(data);
 
-    // ---------------------------
-    // 2) ПОДГОТОВКА ОБЪЕКТА ДЛЯ ЗАПИСИ (ЧИСТАЯ ВЕРСИЯ)
-    // ---------------------------
-
-    const record = {
-      deviceId: data.deviceId,
-      ts: data.ts,
-      ph: data.ph ?? null,
-      ec: data.ec ?? null,
-      waterTempC: data.waterTempC ?? null,
-      rssi: data.rssi ?? null,
-      fw: data.fw ?? null,
-
-      // ⚠ единственная дата — ровно слот
-      slotAt: slotTimestamp,
-    };
-
-    // ---------------------------
-    // 3) ЗАПИСЬ В ИСТОРИЮ (ИДЕМПОТЕНТНО)
-    // ---------------------------
-
-    await telemetryRef.set(record, { merge: true });
-
-    // ---------------------------
-    // 4) АТОМАРНОЕ ОБНОВЛЕНИЕ lastTelemetry
-    // ---------------------------
-
-    await deviceRef.set(
-      {
-        lastTelemetry: {
-          ...record,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-      },
-      { merge: true }
-    );
-
-    logger.info(
-      `[telemetryService] saved ts=${tsStr} uid=${uid} dev=${deviceId}`
-    );
-  } catch (err: any) {
-    logger.error("[telemetryService] saveTelemetry error", {
-      error: err?.message,
-      deviceId,
+    logger.debug("[TelemetryService] ✅ saved", {
       uid,
+      deviceId,
+      ts: data.ts,
     });
+  } catch (err: any) {
+    logger.error("[TelemetryService] ❌ saveTelemetry error", {
+      uid,
+      deviceId,
+      error: err?.message ?? String(err),
+    });
+    throw err;
   }
 }
