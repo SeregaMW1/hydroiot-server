@@ -1,8 +1,10 @@
+// src/mqtt/mqttClient.ts
 import mqtt from "mqtt";
 import { z } from "zod";
 import { upsertDeviceForUid, resolveUidByDeviceId } from "../services/deviceService.js";
 import { saveTelemetry } from "../services/telemetryService.js";
 import { logger } from "../utils/logger.js";
+import type { TelemetryInput } from "../types/TelemetryData.js";
 
 // ----------- ENV -----------
 const {
@@ -18,27 +20,31 @@ if (!MQTT_URL || !MQTT_USERNAME || !MQTT_PASSWORD) {
 }
 
 // ----------- SCHEMAS -----------
-const TelemetrySchema = z.object({
-  uid: z.string().optional(),
-  deviceId: z.string().optional(),
-  ts: z.number().optional(),
-  ph: z.number().nullable().optional(),
-  ec: z.number().nullable().optional(),
-  waterTempC: z.number().nullable().optional(),
-  airTempC: z.number().nullable().optional(),
-  humidity: z.number().nullable().optional(),
-  levelMin: z.boolean().optional(),
-  levelMax: z.boolean().optional(),
-  rssi: z.number().nullable().optional(),
-  fw: z.string().optional(),
-}).passthrough();
+const TelemetrySchema = z
+  .object({
+    uid: z.string().optional(),
+    deviceId: z.string().optional(),
+    ts: z.number().optional(),
+    ph: z.number().nullable().optional(),
+    ec: z.number().nullable().optional(),
+    waterTempC: z.number().nullable().optional(),
+    airTempC: z.number().nullable().optional(),
+    humidity: z.number().nullable().optional(),
+    levelMin: z.boolean().optional(),
+    levelMax: z.boolean().optional(),
+    rssi: z.number().nullable().optional(),
+    fw: z.string().optional(),
+  })
+  .passthrough();
 
-const ClaimSchema = z.object({
-  uid: z.string().min(1),
-  deviceId: z.string().min(1),
-  ts: z.number().optional(),
-  fw: z.string().optional(),
-}).passthrough();
+const ClaimSchema = z
+  .object({
+    uid: z.string().min(1),
+    deviceId: z.string().min(1),
+    ts: z.number().optional(),
+    fw: z.string().optional(),
+  })
+  .passthrough();
 
 // ----------- HELPERS -----------
 function extractDeviceId(topic: string): string | undefined {
@@ -67,7 +73,10 @@ client.on("connect", () => {
   logger.info("[MQTT] ✅ Connected");
   client.subscribe([MQTT_CLAIM_TOPIC, MQTT_TELEMETRY_TOPIC], (err) => {
     if (err) logger.error("[MQTT] ❌ Subscribe Error", err);
-    else logger.info(`[MQTT] 📡 Subscribed to: ${MQTT_CLAIM_TOPIC}, ${MQTT_TELEMETRY_TOPIC}`);
+    else
+      logger.info(
+        `[MQTT] 📡 Subscribed to: ${MQTT_CLAIM_TOPIC}, ${MQTT_TELEMETRY_TOPIC}`
+      );
   });
 });
 
@@ -120,10 +129,12 @@ client.on("message", async (topic, payloadBuf) => {
       }
 
       const data = parsed.data;
-      let uid = data.uid ?? await resolveUidByDeviceId(deviceId);
+      let uid = data.uid ?? (await resolveUidByDeviceId(deviceId));
 
       if (!uid) {
-        logger.warn(`[MQTT] ⚠ Device ${deviceId} has no owner. Telemetry skipped.`);
+        logger.warn(
+          `[MQTT] ⚠ Device ${deviceId} has no owner. Telemetry skipped.`
+        );
         return;
       }
 
@@ -133,15 +144,32 @@ client.on("message", async (topic, payloadBuf) => {
         lastRssi: data.rssi ?? null,
       });
 
-      await saveTelemetry(uid, deviceId, {
-        ...data,
+      const telemetryInput: TelemetryInput = {
         deviceId,
         receivedAt,
-      });
+        uid,
+        ts: data.ts, // может быть undefined — норм, нормализуем в сервисе
+        ph: data.ph ?? null,
+        ec: data.ec ?? null,
+        waterTempC: data.waterTempC ?? null,
+        airTempC: data.airTempC ?? null,
+        humidity: data.humidity ?? null,
+        levelMin: data.levelMin,
+        levelMax: data.levelMax,
+        rssi: data.rssi ?? null,
+        fw: data.fw,
+      };
 
-      logger.info(`[MQTT] ✅ Telemetry saved → uid=${uid}, device=${deviceId}`);
+      await saveTelemetry(uid, deviceId, telemetryInput);
+
+      logger.info(
+        `[MQTT] ✅ Telemetry saved → uid=${uid}, device=${deviceId}`
+      );
     }
   } catch (err: any) {
-    logger.error("[MQTT] ❌ Handler error", { topic, error: err?.message });
+    logger.error("[MQTT] ❌ Handler error", {
+      topic,
+      error: err?.message,
+    });
   }
 });
