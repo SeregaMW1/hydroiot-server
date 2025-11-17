@@ -43,9 +43,9 @@ function normalizeTelemetry(
     rssi: rssi ?? null,
     fw: fw ?? null,
 
-    // bool’ы лучше хранить как boolean | null, чтобы не путать с “false = нет датчика”
-    levelMin: typeof levelMin === "boolean" ? levelMin : null,
-    levelMax: typeof levelMax === "boolean" ? levelMax : null,
+    // ✅ Здесь меняем null → undefined, чтобы тип совпадал (boolean | undefined)
+    levelMin: typeof levelMin === "boolean" ? levelMin : undefined,
+    levelMax: typeof levelMax === "boolean" ? levelMax : undefined,
   };
 }
 
