@@ -7,6 +7,7 @@ import type { TelemetryInput, TelemetryData } from "../types/TelemetryData.js";
  * Нормализация входящей телеметрии:
  *  - гарантируем ts
  *  - приводим nullable поля к понятному виду
+ *  - НЕ отправляем undefined в Firestore
  */
 function normalizeTelemetry(
   uid: string,
@@ -29,7 +30,8 @@ function normalizeTelemetry(
 
   const measurementTs = ts ?? receivedAt.getTime();
 
-  return {
+  // базовый объект без levelMin/levelMax
+  const result: TelemetryData = {
     uid,
     deviceId,
     receivedAt,
@@ -42,11 +44,18 @@ function normalizeTelemetry(
     humidity: humidity ?? null,
     rssi: rssi ?? null,
     fw: fw ?? null,
-
-    // ✅ Здесь меняем null → undefined, чтобы тип совпадал (boolean | undefined)
-    levelMin: typeof levelMin === "boolean" ? levelMin : undefined,
-    levelMax: typeof levelMax === "boolean" ? levelMax : undefined,
   };
+
+  // 👇 добавляем только если действительно boolean
+  if (typeof levelMin === "boolean") {
+    result.levelMin = levelMin;
+  }
+
+  if (typeof levelMax === "boolean") {
+    result.levelMax = levelMax;
+  }
+
+  return result;
 }
 
 /**
