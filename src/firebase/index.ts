@@ -7,14 +7,18 @@ if (!admin.apps.length) {
     throw new Error("FIREBASE_SERVICE_ACCOUNT is not set in environment variables");
   }
 
-  // Преобразуем строку в объект и восстанавливаем переносы ключа
   const serviceAccount = JSON.parse(serviceAccountRaw);
+
+  // Восстанавливаем переносы строки в ключе
   if (serviceAccount.private_key) {
     serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, "\n");
   }
 
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
+
+    // 👇👇👇 ВОТ ЭТО ПОЧИНИЛО Firestore Ошибку 👇👇👇
+    ignoreUndefinedProperties: true
   });
 }
 
