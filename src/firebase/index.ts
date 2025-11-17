@@ -9,16 +9,14 @@ if (!admin.apps.length) {
 
   const serviceAccount = JSON.parse(serviceAccountRaw);
 
-  // Восстанавливаем переносы строки в ключе
+  // Восстановление переносов ключа
   if (serviceAccount.private_key) {
     serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, "\n");
   }
 
+  // ❗ ВАЖНО: никаких ignoreUndefinedProperties
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
-
-    // 👇👇👇 ВОТ ЭТО ПОЧИНИЛО Firestore Ошибку 👇👇👇
-    ignoreUndefinedProperties: true
   });
 }
 
